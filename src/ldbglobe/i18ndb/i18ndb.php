@@ -1,8 +1,14 @@
 <?php
 namespace ldbglobe\i18ndb;
 
+define('I18NDB_DEFAULT_STATIC_INSTANCE','DEFAULT');
+define('I18NDB_DEFAULT_FALLBACK_CHAIN','DEFAULT');
+
 class i18ndb {
 
+	private static $_static_instances = [];
+
+	private $_language_fallbacks = [];
 	private $_pdo_handler = null;
 	private $_table_name = null;
 	private $_table_is_ready = null;
@@ -10,6 +16,19 @@ class i18ndb {
 	private $_get_statement_language = null;
 	private $_set_statement = null;
 	private $_clear_statement = null;
+
+	public static function LoadInstance($key=null)
+	{
+		$key = $key!==null ? $key : I18NDB_DEFAULT_STATIC_INSTANCE;
+		return isset(self::$_static_instances[$key]) ? self::$_static_instances[$key] : false;
+	}
+
+	public static function RegisterInstance($i18ndb_instance,$key=null)
+	{
+		$key = $key!==null ? $key : I18NDB_DEFAULT_STATIC_INSTANCE;
+		self::$_static_instances[$key] = $i18ndb_instance;
+	}
+
 
 	public function __construct($pdo_handler, $table_name)
 	{
@@ -24,7 +43,7 @@ class i18ndb {
 				`key` = :key
 			");
 
-			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `language`, `value` FROM `".$this->_table_name."` WHERE
+			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE
 				`group_id` = :group_id AND
 				`type` = :type AND
 				`key` = :key AND
@@ -63,7 +82,15 @@ class i18ndb {
 			$result = $this->_get_statement_all->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key));
 			if(!$result)
 				throw new Exception($this->_pdo_handler->errorInfo());
-			$result = $this->_get_statement_all->fetchAll(\PDO::FETCH_OBJ);
+			$results = $this->_get_statement_all->fetchAll(\PDO::FETCH_OBJ);
+			$result = array();
+			if($results)
+			{
+				foreach($results as $k=>$v)
+				{
+					$result[$v->language] = $v->value;
+				}
+			}
 		}
 		else
 		{
@@ -71,10 +98,47 @@ class i18ndb {
 			if(!$result)
 				throw new Exception($this->_pdo_handler->errorInfo());
 			$result = $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
+			if($result)
+				$result = $result->value;
 		}
 
 		if($result)
 			return $result;
+		return false;
+	}
+
+	public function registerLanguageFallback($languages,$from=null)
+	{
+		$from = $from!==null ? $from : I18NDB_DEFAULT_FALLBACK_CHAIN;
+		$this->_language_fallbacks[$from] = $languages;
+	}
+	public function loadLanguageFallback($from=null)
+	{
+		$from = $from!==null ? $from : I18NDB_DEFAULT_FALLBACK_CHAIN;
+		return isset($this->_language_fallbacks[$from])
+			? $this->_language_fallbacks[$from]
+			: (
+				isset($this->_language_fallbacks[I18NDB_DEFAULT_FALLBACK_CHAIN])
+				? $this->_language_fallbacks[I18NDB_DEFAULT_FALLBACK_CHAIN]
+				: array()
+			);
+	}
+
+	public function getWithFallback($group_id,$type,$key,$language)
+	{
+		$r = $this->get($group_id,$type,$key);
+		if(isset($r[$language]))
+			return $r[$language];
+
+		$fallback_chain = $this->loadLanguageFallback($language);
+		foreach($fallback_chain as $fblang)
+		{
+			if($fblang != $language)
+			{
+				if(isset($r[$fblang]))
+					return $r[$fblang];
+			}
+		}
 		return false;
 	}
 
@@ -91,6 +155,50 @@ class i18ndb {
 		}
 		else
 			return $this->_clear_statement->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+	}
+
+	public function search($q, $group_id=null, $type=null, $key=null, $language=null)
+	{
+		$execute_values = [];
+		$query_filter = [];
+
+		$regexp = array();
+		foreach(explode(' ',$q) as $word)
+		{
+			if(strlen($word)>3)
+			{
+				$regexp[] = preg_quote($word);
+			}
+		}
+		$query_filter[] ='value REGEXP :regexp';
+		$execute_values['regexp'] = "(".implode('|',$regexp).")";
+
+		if($group_id!==null)
+		{
+			$query_filter[] = 'group_id = :group_id';
+			$execute_values['group_id'] = $group_id;
+		}
+		if($type!==null)
+		{
+			$query_filter[] = 'type = :type';
+			$execute_values['type'] = $type;
+		}
+		if($key!==null)
+		{
+			$query_filter[] = 'key = :key';
+			$execute_values['key'] = $key;
+		}
+		if($language!==null)
+		{
+			$query_filter[] = 'language = :language';
+			$execute_values['language'] = $language;
+		}
+
+		$stmt = $this->_pdo_handler->prepare("SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `group_id`, `type`, `key`, `language`");
+		$result = $stmt->execute($execute_values);
+		if($result)
+			return $stmt->fetchAll(\PDO::FETCH_OBJ);
+		return false;
 	}
 
 	// ---------------------------------------------------------

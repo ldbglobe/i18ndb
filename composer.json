@@ -1,0 +1,25 @@
+{
+    "name": "ldbglobe/i18ndb",
+    "type": "library",
+    "description": "PHP helpers to manage read/write of indexed i18n text in database",
+    "keywords": [],
+    "homepage": "https://github.com/ldbglobe/i18ndb",
+    "support": {
+        "issues": "https://github.com/ldbglobe/i18ndb/issues",
+        "source": "https://github.com/ldbglobe/i18ndb"
+    },
+    "authors": [
+        {
+            "name": "Mathieu Delestre",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=5.4.0"
+    },
+    "autoload": {
+        "psr-0": {
+            "ldbglobe\\i18ndb": "src"
+        }
+    }
+}

@@ -38,20 +38,20 @@ class i18ndb {
 		if($this->table_is_ready())
 		{
 			$this->_get_statement_all = $this->_pdo_handler->prepare("SELECT `language`, `value` FROM `".$this->_table_name."` WHERE
-				`group_id` = :group_id AND
+				`id` = :id AND
 				`type` = :type AND
 				`key` = :key
 			");
 
 			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE
-				`group_id` = :group_id AND
+				`id` = :id AND
 				`type` = :type AND
 				`key` = :key AND
 				`language` = :language
 			");
 
 			$this->_set_statement = $this->_pdo_handler->prepare("INSERT INTO `".$this->_table_name."` SET
-				`group_id` = :group_id,
+				`id` = :id,
 				`type` = :type,
 				`key` = :key,
 				`language` = :language,
@@ -62,7 +62,7 @@ class i18ndb {
 			");
 
 			$this->_clear_statement = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
-				`group_id` = :group_id AND
+				`id` = :id AND
 				`type` = :type AND
 				`key` = :key AND
 				`language` = :language
@@ -74,12 +74,12 @@ class i18ndb {
 	// Read / Write function
 	// ---------------------------------------------------------
 
-	public function get($group_id,$type,$key,$language = null)
+	public function get($type,$id,$key,$language = null)
 	{
-		$group_id = $group_id>0 ? $group_id : 0;
+		$id = $id>0 ? $id : 0;
 		if($language===null)
 		{
-			$result = $this->_get_statement_all->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key));
+			$result = $this->_get_statement_all->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
 			if(!$result)
 				throw new Exception($this->_pdo_handler->errorInfo());
 			$results = $this->_get_statement_all->fetchAll(\PDO::FETCH_OBJ);
@@ -94,7 +94,7 @@ class i18ndb {
 		}
 		else
 		{
-			$result = $this->_get_statement_language->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+			$result = $this->_get_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
 			if(!$result)
 				throw new Exception($this->_pdo_handler->errorInfo());
 			$result = $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
@@ -124,9 +124,9 @@ class i18ndb {
 			);
 	}
 
-	public function getWithFallback($group_id,$type,$key,$language)
+	public function getWithFallback($type,$id,$key,$language)
 	{
-		$r = $this->get($group_id,$type,$key);
+		$r = $this->get($type,$id,$key);
 		if(isset($r[$language]))
 			return $r[$language];
 
@@ -142,22 +142,22 @@ class i18ndb {
 		return false;
 	}
 
-	public function set($group_id,$type,$key,$language, $value = null)
+	public function set($type,$id,$key,$language, $value = null)
 	{
-		$group_id = $group_id>0 ? $group_id : 0;
+		$id = $id>0 ? $id : 0;
 		if($value!==null)
 		{
 			// write in database only if change is needed
-			$old = $this->get($group_id,$type,$key,$language);
+			$old = $this->get($id,$type,$key,$language);
 			if($old->value!=$value)
-				return $this->_set_statement->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value));
+				return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value));
 			return true;
 		}
 		else
-			return $this->_clear_statement->execute(array('group_id'=>$group_id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+			return $this->_clear_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
 	}
 
-	public function search($q, $group_id=null, $type=null, $key=null, $language=null)
+	public function search($q, $type=null, $id=null, $key=null, $language=null)
 	{
 		$execute_values = [];
 		$query_filter = [];
@@ -173,10 +173,10 @@ class i18ndb {
 		$query_filter[] ='value REGEXP :regexp';
 		$execute_values['regexp'] = "(".implode('|',$regexp).")";
 
-		if($group_id!==null)
+		if($id!==null)
 		{
-			$query_filter[] = 'group_id = :group_id';
-			$execute_values['group_id'] = $group_id;
+			$query_filter[] = 'id = :id';
+			$execute_values['id'] = $id;
 		}
 		if($type!==null)
 		{
@@ -194,7 +194,7 @@ class i18ndb {
 			$execute_values['language'] = $language;
 		}
 
-		$stmt = $this->_pdo_handler->prepare("SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `group_id`, `type`, `key`, `language`");
+		$stmt = $this->_pdo_handler->prepare("SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `type`, `id`, `key`, `language`");
 		$result = $stmt->execute($execute_values);
 		if($result)
 			return $stmt->fetchAll(\PDO::FETCH_OBJ);
@@ -230,14 +230,14 @@ class i18ndb {
 	{
 		$result = $this->_pdo_handler->query("
 			CREATE TABLE `".$this->_table_name."` (
-			`group_id` int(11) NOT NULL DEFAULT '0',
 			`type` varchar(64) NOT NULL DEFAULT '',
+			`id` int(11) NOT NULL DEFAULT '0',
 			`key` varchar(64) NOT NULL,
 			`language` varchar(6) NOT NULL,
 			`value` longtext,
 			`created_at` datetime NOT NULL,
 			`updated_at` datetime NOT NULL,
-			PRIMARY KEY (`group_id`,`type`,`key`,`language`)
+			PRIMARY KEY (`type`,`id`,`key`,`language`)
 			) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 		");
 		if(!$result)

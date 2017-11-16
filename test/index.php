@@ -38,6 +38,15 @@ $i18n1->set('test',2,'title','es', 'ES(2)');
 $i18n1->set('test',3,'title','en', 'EN(3)');
 $i18n1->set('test',3,'title','es', 'ES(3)');
 
+$i18n1->set('test',3,'indexed','fr', array('test 0', 'test 1', 'test 2'));
+$i18n1->set('test',3,'indexed','fr', 'test 0 Edited',0);
+
+$i18n1->set('test',3,'removed','fr', array('test 0', 'test 1', 'test 2'));
+$i18n1->set('test',3,'removed','en', array('test 0', 'test 1', 'test 2'));
+$i18n1->clear('test',3,'removed');
+
+
+
 // registering a static instance globaly accessible through ldbglobe\i18ndb\i18ndb class
 i18ndb::RegisterInstance($i18n0,'instance0');
 i18ndb::RegisterInstance($i18n1,'instance1');
@@ -93,6 +102,8 @@ function test($instanceName)
 	// So we can retrieve the instance by the i18ndb class
 	$i18n = i18ndb::LoadInstance($instanceName);
 
+	//print_r($i18n->get('test',3,'indexed'));
+
 	echo "<h2>Direct read of specific text</h2>";
 	echo "<h3>test,1,title,fr = </h2>"; unit($i18n->get('test',1,'title','fr'),$instanceName,0);
 	echo "<h3>test,1,title,en = </h2>"; unit($i18n->get('test',1,'title','en'),$instanceName,1);
@@ -128,6 +139,7 @@ function test($instanceName)
 						<td>Id</td>
 						<td>Key</td>
 						<td>Language</td>
+						<td>Index</td>
 						<td>Value</td>
 					</tr>
 				</thead>
@@ -141,6 +153,7 @@ function test($instanceName)
 							<td><?=$v->id;?></td>
 							<td><?=$v->key;?></td>
 							<td><?=$v->language;?></td>
+							<td><?=$v->index;?></td>
 							<td><?=$v->value;?></td>
 						</tr>
 						<?php
@@ -161,6 +174,7 @@ function test($instanceName)
 						<td>Id</td>
 						<td>Key</td>
 						<td>Language</td>
+						<td>Index</td>
 						<td>Value</td>
 					</tr>
 				</thead>
@@ -174,6 +188,7 @@ function test($instanceName)
 							<td><?=$v->id;?></td>
 							<td><?=$v->key;?></td>
 							<td><?=$v->language;?></td>
+							<td><?=$v->index;?></td>
 							<td><?=$v->value;?></td>
 						</tr>
 						<?php

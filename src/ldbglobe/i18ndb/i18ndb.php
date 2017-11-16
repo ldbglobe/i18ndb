@@ -16,6 +16,7 @@ class i18ndb {
 	private $_get_statement_language = null;
 	private $_set_statement = null;
 	private $_clear_statement = null;
+	private $_clear_statement_language = null;
 
 	public static function LoadInstance($key=null)
 	{
@@ -37,17 +38,24 @@ class i18ndb {
 
 		if($this->table_is_ready())
 		{
-			$this->_get_statement_all = $this->_pdo_handler->prepare("SELECT `language`, `value` FROM `".$this->_table_name."` WHERE
+			$this->_get_statement_all = $this->_pdo_handler->prepare("SELECT `language`, `index`, `value` FROM `".$this->_table_name."` WHERE
 				`id` = :id AND
 				`type` = :type AND
 				`key` = :key
 			");
 
-			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE
+			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `index`, `value` FROM `".$this->_table_name."` WHERE
 				`id` = :id AND
 				`type` = :type AND
 				`key` = :key AND
 				`language` = :language
+			");
+			$this->_get_statement_language_index = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE
+				`id` = :id AND
+				`type` = :type AND
+				`key` = :key AND
+				`language` = :language AND
+				`index` = :index
 			");
 
 			$this->_set_statement = $this->_pdo_handler->prepare("INSERT INTO `".$this->_table_name."` SET
@@ -55,6 +63,7 @@ class i18ndb {
 				`type` = :type,
 				`key` = :key,
 				`language` = :language,
+				`index` = :index,
 				`value` = :value,
 				created_at = NOW(),
 				updated_at = NOW()
@@ -62,6 +71,12 @@ class i18ndb {
 			");
 
 			$this->_clear_statement = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
+				`id` = :id AND
+				`type` = :type AND
+				`key` = :key
+			");
+
+			$this->_clear_statement_language = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
 				`id` = :id AND
 				`type` = :type AND
 				`key` = :key AND
@@ -74,7 +89,7 @@ class i18ndb {
 	// Read / Write function
 	// ---------------------------------------------------------
 
-	public function get($type,$id,$key,$language = null)
+	public function get($type,$id,$key,$language = null, $index = null)
 	{
 		$id = $id>0 ? $id : 0;
 		if($language===null)
@@ -88,20 +103,55 @@ class i18ndb {
 			{
 				foreach($results as $k=>$v)
 				{
-					$result[$v->language] = $v->value;
+					if(!isset($result[$v->language]))
+						$result[$v->language] = array();
+
+					$result[$v->language][$v->index] = $v->value;
+				}
+				foreach($result as $l=>$v)
+				{
+					if(count($v)==1)
+					{
+						foreach($v as $v)
+							$result[$l] = $v;
+					}
 				}
 			}
 		}
 		else
 		{
-			$result = $this->_get_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
-			if(!$result)
-				throw new Exception($this->_pdo_handler->errorInfo());
-			$result = $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
-			if($result)
-				$result = $result->value;
+			if($index===null)
+			{
+				$result = $this->_get_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+				if(!$result)
+					throw new Exception($this->_pdo_handler->errorInfo());
+				$results = $this->_get_statement_language->fetchAll(\PDO::FETCH_OBJ);
+				if($results)
+				{
+					if(count($results)>1)
+					{
+						$result = array();
+						foreach($results as $k=>$v)
+						{
+							$result[$v->index] = $v->value;
+						}
+					}
+					else
+					{
+						$result = $results[0]->value;
+					}
+				}
+				else
+					$result = false;
+			}
+			else
+			{
+				$result = $this->_get_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
+				if(!$result)
+					throw new Exception($this->_pdo_handler->errorInfo());
+				$result = $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
+			}
 		}
-
 		if($result)
 			return $result;
 		return false;
@@ -142,32 +192,68 @@ class i18ndb {
 		return false;
 	}
 
-	public function set($type,$id,$key,$language, $value = null)
+	public function set($type,$id,$key,$language, $value = null, $index = '')
 	{
 		$id = $id>0 ? $id : 0;
 		if($value!==null)
 		{
-			// write in database only if change is needed
-			$old = $this->get($id,$type,$key,$language);
-			if($old->value!=$value)
-				return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value));
-			return true;
+			if(is_array($value))
+			{
+				foreach($value as $i=>$v)
+				{
+					$this->set($type,$id,$key,$language, $v, $i);
+				}
+				return true;
+			}
+			else
+			{
+				// write in database only if change is needed
+				$old = $this->get($type,$id,$key,$language,$index);
+				if($old->value!=$value)
+					return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value, 'index'=>$index));
+				return true;
+			}
 		}
 		else
-			return $this->_clear_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+			return $this->clear($type,$id,$key,$language);
 	}
 
-	public function search($q, $type=null, $id=null, $key=null, $language=null)
+	public function clear($type,$id,$key,$language = null)
 	{
+		$id = $id>0 ? $id : 0;
+		if($language)
+			return $this->_clear_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+		else
+			return $this->_clear_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
+	}
+
+	public function search($param=null, $type=null, $id=null, $key=null, $language=null)
+	{
+		if(is_array($param))
+		{
+			$q =        isset($param['q'])        ? $param['q']        : null;
+			$type =     isset($param['type'])     ? $param['type']     : null;
+			$id =       isset($param['id'])       ? $param['id']       : null;
+			$key =      isset($param['key'])      ? $param['key']      : null;
+			$language = isset($param['language']) ? $param['language'] : null;
+		}
+		else
+		{
+			$q = $param;
+		}
+
 		$execute_values = [];
 		$query_filter = [];
 
 		$regexp = array();
-		foreach(explode(' ',$q) as $word)
+		if($q!==null)
 		{
-			if(strlen($word)>3)
+			foreach(explode(' ',$q) as $word)
 			{
-				$regexp[] = preg_quote($word);
+				if(strlen($word)>3)
+				{
+					$regexp[] = preg_quote($word);
+				}
 			}
 		}
 		$query_filter[] ='value REGEXP :regexp';
@@ -234,10 +320,11 @@ class i18ndb {
 			`id` int(11) NOT NULL DEFAULT '0',
 			`key` varchar(64) NOT NULL,
 			`language` varchar(6) NOT NULL,
+			`index` varchar(32) NOT NULL DEFAULT '',
 			`value` longtext,
 			`created_at` datetime NOT NULL,
 			`updated_at` datetime NOT NULL,
-			PRIMARY KEY (`type`,`id`,`key`,`language`)
+			PRIMARY KEY (`type`,`id`,`key`,`language`,`index`)
 			) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 		");
 		if(!$result)

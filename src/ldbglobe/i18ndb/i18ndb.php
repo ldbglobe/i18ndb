@@ -58,7 +58,7 @@ class i18ndb {
 				`value` = :value,
 				created_at = NOW(),
 				updated_at = NOW()
-				ON DUPLICATE KEY UPDATE updated_at = NOW()
+				ON DUPLICATE KEY UPDATE updated_at = NOW(), `value` = :value
 			");
 
 			$this->_clear_statement = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE

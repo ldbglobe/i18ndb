@@ -128,7 +128,7 @@ class i18ndb {
 				$results = $this->_get_statement_language->fetchAll(\PDO::FETCH_OBJ);
 				if($results)
 				{
-					if(count($results)>1)
+					if(count($results)>1 || $results[0]->index!=='')
 					{
 						$result = array();
 						foreach($results as $k=>$v)

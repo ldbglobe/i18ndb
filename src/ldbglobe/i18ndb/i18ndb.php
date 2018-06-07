@@ -82,6 +82,13 @@ class i18ndb {
 				`key` = :key AND
 				`language` = :language
 			");
+			$this->_clear_statement_language_index = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
+				`id` = :id AND
+				`type` = :type AND
+				`key` = :key AND
+				`language` = :language AND
+				`index` = :index
+			");
 		}
 	}
 
@@ -195,6 +202,7 @@ class i18ndb {
 	public function set($type,$id,$key,$language, $value = null, $index = '')
 	{
 		$id = $id>0 ? $id : 0;
+
 		if($value!==null)
 		{
 			if(is_array($value))
@@ -207,20 +215,31 @@ class i18ndb {
 			}
 			else
 			{
-				// write in database only if change is needed
-				$old = $this->get($type,$id,$key,$language,$index);
-				if($old->value!=$value)
-					return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value, 'index'=>$index));
-				return true;
+				if(!empty($value))
+				{
+					// write in database only if change is needed
+					$old = $this->get($type,$id,$key,$language,$index);
+					if($old->value!=$value)
+						return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value, 'index'=>$index));
+					return true;
+				}
+				else
+				{
+					return $this->clear($type,$id,$key,$language,$index);
+				}
 			}
 		}
 		else
-			return $this->clear($type,$id,$key,$language);
+		{
+			return $this->clear($type,$id,$key,$language,$index);
+		}
 	}
 
-	public function clear($type,$id,$key,$language = null)
+	public function clear($type,$id,$key,$language = null,$index=null)
 	{
 		$id = $id>0 ? $id : 0;
+		if($index)
+			return $this->_clear_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
 		if($language)
 			return $this->_clear_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
 		else
@@ -231,11 +250,12 @@ class i18ndb {
 	{
 		if(is_array($param))
 		{
-			$q =        isset($param['q'])        ? $param['q']        : null;
-			$type =     isset($param['type'])     ? $param['type']     : null;
-			$id =       isset($param['id'])       ? $param['id']       : null;
-			$key =      isset($param['key'])      ? $param['key']      : null;
-			$language = isset($param['language']) ? $param['language'] : null;
+			$q =         isset($param['q'])        ? $param['q']        : null;
+			$regexp =    isset($param['regexp'])   ? $param['regexp']   : false;
+			$type =      isset($param['type'])     ? $param['type']     : null;
+			$id =        isset($param['id'])       ? $param['id']       : null;
+			$key =       isset($param['key'])      ? $param['key']      : null;
+			$language =  isset($param['language']) ? $param['language'] : null;
 		}
 		else
 		{
@@ -245,19 +265,28 @@ class i18ndb {
 		$execute_values = [];
 		$query_filter = [];
 
-		$regexp = array();
-		if($q!==null)
+		if($regexp)
 		{
-			foreach(explode(' ',$q) as $word)
+			// nothing to do
+		}
+		else
+		{
+			$regexp = array();
+			if($q!==null)
 			{
-				if(strlen($word)>3)
+				foreach(explode(' ',$q) as $word)
 				{
-					$regexp[] = preg_quote($word);
+					if(strlen($word)>3)
+					{
+						$regexp[] = preg_quote($word);
+					}
 				}
 			}
+			$regexp = implode('|',$regexp);
 		}
+
 		$query_filter[] ='value REGEXP :regexp';
-		$execute_values['regexp'] = "(".implode('|',$regexp).")";
+		$execute_values['regexp'] = "(".$regexp.")";
 
 		if($id!==null)
 		{

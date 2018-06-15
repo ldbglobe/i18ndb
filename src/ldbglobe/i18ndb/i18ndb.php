@@ -98,6 +98,8 @@ class i18ndb {
 
 	public function get($type,$id,$key,$language = null, $index = null)
 	{
+		$Morphoji = new \Chefkoch\Morphoji\Converter();
+
 		$id = $id>0 ? $id : 0;
 		if($language===null)
 		{
@@ -113,7 +115,7 @@ class i18ndb {
 					if(!isset($result[$v->language]))
 						$result[$v->language] = array();
 
-					$result[$v->language][$v->index] = $v->value;
+					$result[$v->language][$v->index] = $Morphoji->toEmojis($v->value);
 				}
 				foreach($result as $l=>$v)
 				{
@@ -140,12 +142,12 @@ class i18ndb {
 						$result = array();
 						foreach($results as $k=>$v)
 						{
-							$result[$v->index] = $v->value;
+							$result[$v->index] = $Morphoji->toEmojis($v->value);
 						}
 					}
 					else
 					{
-						$result = $results[0]->value;
+						$result =  $Morphoji->toEmojis($results[0]->value);
 					}
 				}
 				else
@@ -156,7 +158,9 @@ class i18ndb {
 				$result = $this->_get_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
 				if(!$result)
 					throw new Exception($this->_pdo_handler->errorInfo());
-				$result = $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
+				$result =  $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
+				if(isset($result->value))
+					$result->value = $Morphoji->toEmojis($result->value);
 			}
 		}
 		if($result)
@@ -201,6 +205,8 @@ class i18ndb {
 
 	public function set($type,$id,$key,$language, $value = null, $index = '')
 	{
+		$Morphoji = new \Chefkoch\Morphoji\Converter();
+
 		$id = $id>0 ? $id : 0;
 
 		if($value!==null)
@@ -219,8 +225,11 @@ class i18ndb {
 				{
 					// write in database only if change is needed
 					$old = $this->get($type,$id,$key,$language,$index);
-					if($old->value!=$value)
-						return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$value, 'index'=>$index));
+					if(!$old || $old->value!=$value)
+					{
+						$db_value = $Morphoji->fromEmojis($value);
+						return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$db_value, 'index'=>$index));
+					}
 					return true;
 				}
 				else
@@ -248,6 +257,9 @@ class i18ndb {
 
 	public function search($param=null, $type=null, $id=null, $key=null, $language=null)
 	{
+		$Morphoji = new \Chefkoch\Morphoji\Converter();
+
+		$regexp = null;
 		if(is_array($param))
 		{
 			$q =         isset($param['q'])        ? $param['q']        : null;
@@ -312,7 +324,15 @@ class i18ndb {
 		$stmt = $this->_pdo_handler->prepare("SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `type`, `id`, `key`, `language`");
 		$result = $stmt->execute($execute_values);
 		if($result)
-			return $stmt->fetchAll(\PDO::FETCH_OBJ);
+		{
+			$r = $stmt->fetchAll(\PDO::FETCH_OBJ);
+			foreach($r as $k=>$v)
+			{
+				$v->value = $Morphoji->toEmojis($v->value);
+				$r[$k] = $v;
+			}
+			return $r;
+		}
 		return false;
 	}
 

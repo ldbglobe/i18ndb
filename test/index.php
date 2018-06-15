@@ -11,7 +11,7 @@ $i18n0->RegisterLanguageFallback(array('en','fr')); // default language fallback
 
 $i18n0->set('test',1,'title','fr', 'Titre de test');
 $i18n0->set('test',1,'description','fr', 'Description de test');
-$i18n0->set('test',1,'title','en', 'Test title');
+$i18n0->set('test',1,'title','en', 'Test title 😉');
 $i18n0->set('test',1,'description','en', 'Test description');
 $i18n0->set('test',1,'title','es', 'Título del ensayo');
 $i18n0->set('test',1,'description','es', 'Descripción del ensayo');
@@ -56,9 +56,9 @@ function unit($v,$instanceName,$expectedIdx)
 	$expected_results = array(
 		'instance0' => array(
 			'Titre de test',
-			'Test title',
+			'Test title 😉',
 			array(
-				"en"=>"Test title",
+				"en"=>"Test title 😉",
 				"es"=>"Título del ensayo",
 				"fr"=>"Titre de test",
 			),

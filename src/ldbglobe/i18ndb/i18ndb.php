@@ -288,7 +288,7 @@ class i18ndb {
 			{
 				foreach(explode(' ',$q) as $word)
 				{
-					if(strlen($word)>3)
+					if(strlen($word)>0)
 					{
 						$regexp[] = preg_quote($word);
 					}

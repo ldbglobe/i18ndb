@@ -358,7 +358,16 @@ class i18ndb {
 
 	private function test_table()
 	{
-		return $this->_pdo_handler->query("SHOW TABLES LIKE '".$this->_table_name."'")->rowCount() > 0;
+		$table = $this->_table_name;
+		try {
+
+			$result = $this->_pdo_handler->query("SELECT 1 FROM `${table}` LIMIT 1");
+			// Result is either boolean FALSE (no table found) or PDOStatement Object (table found)
+			return $result !== FALSE;
+		} catch (\Exception $e) {
+			// We got an exception == table not found
+			return FALSE;
+		}
 	}
 
 	private function init_table()

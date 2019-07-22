@@ -33,8 +33,34 @@ class i18ndb {
 
 	public function __construct($pdo_handler, $table_name)
 	{
+		$__PRIVATE_INSTANCE_CACHE = false;
+		try {
+			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.sha1(json_encode($pdo_handler).'_'.$table_name);
+		} catch (Exception $e) {
+			
+		}
+		
+		if(ENV_DEBUG && $__PRIVATE_INSTANCE_CACHE)
+		{
+			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
+			if($instance)
+			{
+				$this->_pdo_handler = $instance->_pdo_handler;
+				$this->_table_name = $instance->_table_name;
+				$this->_get_statement_all = $instance->_get_statement_all;
+				$this->_get_statement_language = $instance->_get_statement_language;
+				$this->_get_statement_language_index = $instance->_get_statement_language_index;
+				$this->_set_statement = $instance->_set_statement;
+				$this->_clear_statement = $instance->_clear_statement;
+				$this->_clear_statement_language = $instance->_clear_statement_language;
+				$this->_clear_statement_language_index = $instance->_clear_statement_language_index;
+				return ;
+			}
+		}
+
 		$this->_pdo_handler = $pdo_handler;
 		$this->_table_name = $table_name;
+
 
 		if($this->table_is_ready())
 		{
@@ -89,6 +115,11 @@ class i18ndb {
 				`language` = :language AND
 				`index` = :index
 			");
+		}
+
+		if(ENV_DEBUG && $__PRIVATE_INSTANCE_CACHE)
+		{
+			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
 		}
 	}
 

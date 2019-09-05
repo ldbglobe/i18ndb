@@ -414,7 +414,7 @@ class i18ndb {
 			`created_at` datetime NOT NULL,
 			`updated_at` datetime NOT NULL,
 			PRIMARY KEY (`type`,`id`,`key`,`language`,`index`)
-			) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 		");
 		if(!$result)
 			throw new Exception($this->_pdo_handler->errorInfo());

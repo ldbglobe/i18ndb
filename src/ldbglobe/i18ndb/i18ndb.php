@@ -129,6 +129,9 @@ class i18ndb {
 
 	public function get($type,$id,$key,$language = null, $index = null)
 	{
+		if(!$this->table_is_ready())
+			return false;
+
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$id = $id>0 ? $id : 0;
@@ -236,6 +239,9 @@ class i18ndb {
 
 	public function set($type,$id,$key,$language, $value = null, $index = '')
 	{
+		if(!$this->table_is_ready())
+			return false;
+
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$id = $id>0 ? $id : 0;
@@ -277,6 +283,9 @@ class i18ndb {
 
 	public function clear($type,$id,$key,$language = null,$index=null)
 	{
+		if(!$this->table_is_ready())
+			return false;
+
 		$id = $id>0 ? $id : 0;
 		if($index)
 			return $this->_clear_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
@@ -288,6 +297,9 @@ class i18ndb {
 
 	public function search($param=null, $type=null, $id=null, $key=null, $language=null)
 	{
+		if(!$this->table_is_ready())
+			return false;
+
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$regexp = null;

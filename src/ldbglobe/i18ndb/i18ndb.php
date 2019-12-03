@@ -37,10 +37,10 @@ class i18ndb {
 		try {
 			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.sha1(json_encode($pdo_handler).'_'.$table_name);
 		} catch (Exception $e) {
-			
+			//...
 		}
-		
-		if(ENV_DEBUG && $__PRIVATE_INSTANCE_CACHE)
+
+		if($__PRIVATE_INSTANCE_CACHE)
 		{
 			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
 			if($instance)
@@ -117,7 +117,7 @@ class i18ndb {
 			");
 		}
 
-		if(ENV_DEBUG && $__PRIVATE_INSTANCE_CACHE)
+		if($__PRIVATE_INSTANCE_CACHE)
 		{
 			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
 		}
@@ -340,31 +340,32 @@ class i18ndb {
 			$regexp = implode('|',$regexp);
 		}
 
-		$query_filter[] ='value REGEXP :regexp';
+		$query_filter[] ='`value` REGEXP :regexp';
 		$execute_values['regexp'] = "(".$regexp.")";
 
 		if($id!==null)
 		{
-			$query_filter[] = 'id = :id';
+			$query_filter[] = '`id` = :id';
 			$execute_values['id'] = $id;
 		}
 		if($type!==null)
 		{
-			$query_filter[] = 'type = :type';
+			$query_filter[] = '`type` = :type';
 			$execute_values['type'] = $type;
 		}
 		if($key!==null)
 		{
-			$query_filter[] = 'key = :key';
+			$query_filter[] = '`key` = :key';
 			$execute_values['key'] = $key;
 		}
 		if($language!==null)
 		{
-			$query_filter[] = 'language = :language';
+			$query_filter[] = '`language` = :language';
 			$execute_values['language'] = $language;
 		}
 
-		$stmt = $this->_pdo_handler->prepare("SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `type`, `id`, `key`, `language`");
+		$full_query = "SELECT * FROM `".$this->_table_name."` WHERE ".implode(' AND ',$query_filter)." ORDER BY `type`, `id`, `key`, `language`";
+		$stmt = $this->_pdo_handler->prepare($full_query);
 		$result = $stmt->execute($execute_values);
 		if($result)
 		{

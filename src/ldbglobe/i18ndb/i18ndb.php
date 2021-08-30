@@ -6,6 +6,7 @@ define('I18NDB_DEFAULT_FALLBACK_CHAIN','DEFAULT');
 
 class i18ndb {
 
+	private static $_predisClient = false;
 	private static $_static_instances = [];
 
 	private $_language_fallbacks = [];
@@ -17,6 +18,27 @@ class i18ndb {
 	private $_set_statement = null;
 	private $_clear_statement = null;
 	private $_clear_statement_language = null;
+
+	public static function setPredisClient($predisClient)
+	{
+		self::$_predisClient = $predisClient;
+	}
+	public function getPredisHash($type,$id,$key,$language,$index)
+	{
+		return 'i18ndb__'.sha1(serialize([$this->_table_name, $type, $id, $key, $language, $index]));
+	}
+	public function getPredisValue($type,$id,$key,$language,$index)
+	{
+		return self::$_predisClient->get($this->getPredisHash($type,$id,$key,$language,$index));
+	}
+	public function delPredisValue($type,$id,$key,$language,$index)
+	{
+		return self::$_predisClient->del($this->getPredisHash($type,$id,$key,$language,$index));
+	}
+	public function setPredisValue($type,$id,$key,$language,$index,$value)
+	{
+		return self::$_predisClient->set($this->getPredisHash($type,$id,$key,$language,$index),$value);
+	}
 
 	public static function LoadInstance($key=null)
 	{
@@ -30,7 +52,6 @@ class i18ndb {
 		self::$_static_instances[$key] = $i18ndb_instance;
 	}
 
-
 	public function __construct($pdo_handler, $table_name)
 	{
 		$__PRIVATE_INSTANCE_CACHE = false;
@@ -42,27 +63,44 @@ class i18ndb {
 
 		if($__PRIVATE_INSTANCE_CACHE)
 		{
+			$this->__PRIVATE_INSTANCE_CACHE = $__PRIVATE_INSTANCE_CACHE;
+
 			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
 			if($instance)
 			{
-				$this->_pdo_handler = $instance->_pdo_handler;
-				$this->_table_name = $instance->_table_name;
-				$this->_get_statement_all = $instance->_get_statement_all;
-				$this->_get_statement_language = $instance->_get_statement_language;
-				$this->_get_statement_language_index = $instance->_get_statement_language_index;
-				$this->_set_statement = $instance->_set_statement;
-				$this->_clear_statement = $instance->_clear_statement;
-				$this->_clear_statement_language = $instance->_clear_statement_language;
-				$this->_clear_statement_language_index = $instance->_clear_statement_language_index;
+				$this->inheritInstance($instance);
 				return ;
 			}
 		}
 
 		$this->_pdo_handler = $pdo_handler;
 		$this->_table_name = $table_name;
+		$this->_statements_ready = false;
 
+		if($__PRIVATE_INSTANCE_CACHE)
+		{
+			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
+		}
+	}
 
-		if($this->table_is_ready())
+	public function inheritInstance($instance)
+	{
+		$this->_pdo_handler = $instance->_pdo_handler;
+		$this->_table_name = $instance->_table_name;
+		$this->_statements_ready = $instance->_statements_ready;
+		$this->_get_statement_all = $instance->_get_statement_all;
+		$this->_get_statement_language = $instance->_get_statement_language;
+		$this->_get_statement_language_index = $instance->_get_statement_language_index;
+		$this->_set_statement = $instance->_set_statement;
+		$this->_clear_statement = $instance->_clear_statement;
+		$this->_clear_statement_language = $instance->_clear_statement_language;
+		$this->_clear_statement_language_index = $instance->_clear_statement_language_index;
+	}
+
+	public function registerStatements()
+	{
+
+		if($this->_statements_ready===false && $this->table_is_ready())
 		{
 			$this->_get_statement_all = $this->_pdo_handler->prepare("SELECT `language`, `index`, `value` FROM `".$this->_table_name."` WHERE
 				`id` = :id AND
@@ -115,11 +153,8 @@ class i18ndb {
 				`language` = :language AND
 				`index` = :index
 			");
-		}
 
-		if($__PRIVATE_INSTANCE_CACHE)
-		{
-			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
+			$this->_statements_ready = true;
 		}
 	}
 
@@ -129,8 +164,36 @@ class i18ndb {
 
 	public function get($type,$id,$key,$language = null, $index = null)
 	{
+		// PREDIS HACK TO READ FROM MEMORY IF AVAILABLE
+		//print_r([$type,$id,$key,$language,$index]);
+		if(self::$_predisClient && $language!==null)
+		{
+			if($index!==null)
+			{
+				$r = $this->getPredisValue($type,$id,$key,$language,$index);
+				if($r!==null)
+					return $r;
+			}
+			else
+			{
+				// tentative de lire l'index par défaut
+				$r = $this->getPredisValue($type,$id,$key,$language,'');
+				if($r!==null)
+				{
+					//echo $r;
+					return $r;
+				}
+				//die('ok');
+			}
+		}
+
+		//print_r([$type,$id,$key,$language,$index]);
+		//die;
+
 		if(!$this->table_is_ready())
 			return false;
+
+		$this->registerStatements();
 
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
@@ -181,22 +244,53 @@ class i18ndb {
 					}
 					else
 					{
+						// PREDIS HACK: WRITE A MISSING KEY INTO MEMORY
+						if(self::$_predisClient && $language!==null)
+						{
+							$this->setPredisValue($type,$id,$key,$language,'', $results[0]->value);
+						}
+
 						$result =  $Morphoji->toEmojis($results[0]->value);
 					}
 				}
 				else
+				{
+					// PREDIS HACK: WRITE A MISSING KEY INTO MEMORY
+					if(self::$_predisClient && $language!==null)
+					{
+						$this->setPredisValue($type,$id,$key,$language,'', '');
+					}
+
 					$result = false;
+				}
 			}
 			else
 			{
 				$result = $this->_get_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
 				if(!$result)
-					throw new Exception($this->_pdo_handler->errorInfo());
+					throw new \Exception($this->_pdo_handler->errorInfo());
 				$result =  $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
 				if(isset($result->value))
+				{
+					// PREDIS HACK: WRITE A MISSING KEY INTO MEMORY
+					if(self::$_predisClient && $language!==null)
+					{
+						$this->setPredisValue($type,$id,$key,$language,'', $result->value);
+					}
+
 					$result->value = $Morphoji->toEmojis($result->value);
+				}
+				else
+				{
+					// PREDIS HACK: WRITE A MISSING KEY INTO MEMORY
+					if(self::$_predisClient && $language!==null)
+					{
+						$this->setPredisValue($type,$id,$key,$language,'', '');
+					}
+				}
 			}
 		}
+
 		if($result)
 			return $result;
 		return false;
@@ -242,6 +336,8 @@ class i18ndb {
 		if(!$this->table_is_ready())
 			return false;
 
+		$this->registerStatements();
+
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$id = $id>0 ? $id : 0;
@@ -264,6 +360,12 @@ class i18ndb {
 					$old = $this->get($type,$id,$key,$language,$index);
 					if(!$old || $old->value!=$value)
 					{
+						// PREDIS HACK: WRITE A KEY INTO MEMORY
+						if(self::$_predisClient && $language!==null && $index!==null)
+						{
+							$this->setPredisValue($type,$id,$key,$language,$index, $value);
+						}
+
 						$db_value = $Morphoji->fromEmojis($value);
 						return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$db_value, 'index'=>$index));
 					}
@@ -283,8 +385,24 @@ class i18ndb {
 
 	public function clear($type,$id,$key,$language = null,$index=null)
 	{
+		// PREDIS HACK: DELETE A KEY INTO MEMORY
+		if(self::$_predisClient && $language!==null && $index!==null)
+		{
+			if($index!==null)
+			{
+				$this->delPredisValue($type,$id,$key,$language,$index);
+			}
+			else
+			{
+				// on tente de détruire l'index par défaut
+				$this->delPredisValue($type,$id,$key,$language,'index');
+			}
+		}
+
 		if(!$this->table_is_ready())
 			return false;
+
+		$this->registerStatements();
 
 		$id = $id>0 ? $id : 0;
 		if($index)
@@ -299,6 +417,8 @@ class i18ndb {
 	{
 		if(!$this->table_is_ready())
 			return false;
+
+		$this->registerStatements();
 
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 

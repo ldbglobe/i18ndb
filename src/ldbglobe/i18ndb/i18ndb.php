@@ -550,7 +550,7 @@ class i18ndb {
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 		");
 		if(!$result)
-			throw new Exception($this->_pdo_handler->errorInfo());
+			throw new \Exception($this->_pdo_handler->errorInfo());
 
 		return $this->test_table();
 	}

@@ -164,6 +164,8 @@ class i18ndb {
 
 	public function get($type,$id,$key,$language = null, $index = null)
 	{
+		$Morphoji = new \Chefkoch\Morphoji\Converter();
+
 		// PREDIS HACK TO READ FROM MEMORY IF AVAILABLE
 		//print_r([$type,$id,$key,$language,$index]);
 		if(self::$_predisClient && $language!==null)
@@ -172,7 +174,7 @@ class i18ndb {
 			{
 				$r = $this->getPredisValue($type,$id,$key,$language,$index);
 				if($r!==null)
-					return $r;
+					return $r;//$Morphoji->toEmojis($r);
 			}
 			else
 			{
@@ -181,7 +183,7 @@ class i18ndb {
 				if($r!==null)
 				{
 					//echo $r;
-					return $r;
+					return $r;//$Morphoji->toEmojis($r);
 				}
 				//die('ok');
 			}
@@ -194,8 +196,6 @@ class i18ndb {
 			return false;
 
 		$this->registerStatements();
-
-		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$id = $id>0 ? $id : 0;
 		if($language===null)

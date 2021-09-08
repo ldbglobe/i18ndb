@@ -174,7 +174,7 @@ class i18ndb {
 			{
 				$r = $this->getPredisValue($type,$id,$key,$language,$index);
 				if($r!==null)
-					return $r;//$Morphoji->toEmojis($r);
+					return $Morphoji->toEmojis($r);
 			}
 			else
 			{
@@ -183,7 +183,7 @@ class i18ndb {
 				if($r!==null)
 				{
 					//echo $r;
-					return $r;//$Morphoji->toEmojis($r);
+					return $Morphoji->toEmojis($r);
 				}
 				//die('ok');
 			}

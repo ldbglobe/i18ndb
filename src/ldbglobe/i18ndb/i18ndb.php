@@ -453,7 +453,7 @@ class i18ndb {
 				{
 					if(strlen($word)>0)
 					{
-						$regexp[] = preg_quote($word);
+						$regexp[] = self::preg_unaccent(preg_quote($word));
 					}
 				}
 			}
@@ -498,6 +498,16 @@ class i18ndb {
 			return $r;
 		}
 		return false;
+	}
+
+	public static function preg_unaccent($str)
+	{
+		$str = preg_replace('/(e|é|è|ê|ë)/','[eéèêë]',$str);
+		$str = preg_replace('/(a|à|â|ä)/','[aàâä]',$str);
+		$str = preg_replace('/(u|ù|û|ü)/','[uùûü]',$str);
+		$str = preg_replace('/(i|î|ï)/','[iîï]',$str);
+		$str = preg_replace('/(o|ô|ö)/','[oôö]',$str);
+		return $str;
 	}
 
 	// ---------------------------------------------------------

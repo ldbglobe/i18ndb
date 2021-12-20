@@ -7,6 +7,7 @@ define('I18NDB_DEFAULT_FALLBACK_CHAIN','DEFAULT');
 class i18ndb {
 
 	private static $_predisClient = false;
+	private static $_predisTTL = nul;
 	private static $_static_instances = [];
 
 	private $_language_fallbacks = [];
@@ -19,9 +20,11 @@ class i18ndb {
 	private $_clear_statement = null;
 	private $_clear_statement_language = null;
 
-	public static function setPredisClient($predisClient)
+	public static function setPredisClient($predisClient,$ttl=null)
 	{
+		$ttl = $ttl ? $ttl : 3600*24;
 		self::$_predisClient = $predisClient;
+		self::$_predisTTL = $ttl;
 	}
 	public function getPredisHash($type,$id,$key,$language,$index)
 	{
@@ -33,11 +36,12 @@ class i18ndb {
 	}
 	public function delPredisValue($type,$id,$key,$language,$index)
 	{
-		return self::$_predisClient->del($this->getPredisHash($type,$id,$key,$language,$index));
+		self::$_predisClient->del($this->getPredisHash($type,$id,$key,$language,$index));
 	}
 	public function setPredisValue($type,$id,$key,$language,$index,$value)
 	{
-		return self::$_predisClient->set($this->getPredisHash($type,$id,$key,$language,$index),$value);
+		self::$_predisClient->set($this->getPredisHash($type,$id,$key,$language,$index),$value);
+		self::$_predisClient->expire($this->getPredisHash($type,$id,$key,$language,$index), self::$_predisTTL);
 	}
 
 	public static function LoadInstance($key=null)

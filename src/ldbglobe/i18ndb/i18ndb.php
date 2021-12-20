@@ -7,7 +7,7 @@ define('I18NDB_DEFAULT_FALLBACK_CHAIN','DEFAULT');
 class i18ndb {
 
 	private static $_predisClient = false;
-	private static $_predisTTL = nul;
+	private static $_predisTTL = null;
 	private static $_static_instances = [];
 
 	private $_language_fallbacks = [];

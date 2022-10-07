@@ -36,6 +36,7 @@ class i18ndb {
 	}
 	public function delPredisValue($type,$id,$key,$language,$index)
 	{
+		self::$_predisClient->expire($this->getPredisHash($type,$id,$key,$language,$index), -1);
 		self::$_predisClient->del($this->getPredisHash($type,$id,$key,$language,$index));
 	}
 	public function setPredisValue($type,$id,$key,$language,$index,$value)
@@ -399,7 +400,7 @@ class i18ndb {
 			else
 			{
 				// on tente de détruire l'index par défaut
-				$this->delPredisValue($type,$id,$key,$language,'index');
+				$this->delPredisValue($type,$id,$key,$language,'');
 			}
 		}
 
@@ -464,8 +465,11 @@ class i18ndb {
 			$regexp = implode('|',$regexp);
 		}
 
-		$query_filter[] ='`value` REGEXP :regexp';
-		$execute_values['regexp'] = "(".$regexp.")";
+		if($regexp)
+		{
+			$query_filter[] ='`value` REGEXP :regexp';
+			$execute_values['regexp'] = "(".$regexp.")";
+		}
 
 		if($id!==null)
 		{

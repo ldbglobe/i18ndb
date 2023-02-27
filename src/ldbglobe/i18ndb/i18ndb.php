@@ -22,27 +22,69 @@ class i18ndb {
 
 	public static function setPredisClient($predisClient,$ttl=null)
 	{
-		$ttl = $ttl ? $ttl : 3600*24;
+		$ttl = $ttl ? $ttl : 3600*48;
 		self::$_predisClient = $predisClient;
 		self::$_predisTTL = $ttl;
 	}
-	public function getPredisHash($type,$id,$key,$language,$index)
+	public function getPredisHash()//$type,$id,$key,$language,$index)
 	{
-		return 'i18ndb__'.sha1(serialize([$this->_table_name, $type, $id, $key, $language, $index]));
+		if(!self::$_predisClient)
+			return null;
+
+		return 'i18ndb::'.hash('sha256',serialize([$this->_table_name]));
+		//return 'i18ndb__'.hash('sha256',serialize([$this->_table_name, $type, $id, $key, $language, $index]));
+	}
+	public function getContentHash($type, $id, $key, $language, $index)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		return implode('::',[$type?$type:'', $id?$id:'', $key?$key:'', $language?$language:'', $index?$index:'']);
 	}
 	public function getPredisValue($type,$id,$key,$language,$index)
 	{
-		return self::$_predisClient->get($this->getPredisHash($type,$id,$key,$language,$index));
+		if(!self::$_predisClient)
+			return null;
+
+		$cache = false;
+		try {
+			$cache = unserialize(self::$_predisClient->get($this->getPredisHash()));
+		} catch (\Exception $e) {
+			// ...
+		}
+
+		if(!is_array($cache))
+		{
+			// no data found in redis cache
+			$dictionnary = $this->search();
+			$cache = [];
+			foreach($dictionnary as $text)
+			{
+				$cache[$this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index)] = $text->value;
+			}
+			self::$_predisClient->set($this->getPredisHash(),serialize($cache));
+			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
+		}
+		$cache ? $cache : [];
+
+		$k = $this->getContentHash($type,$id,$key,$language,$index);
+		return isset($cache[$k]) ? $cache[$k] : '';
 	}
 	public function delPredisValue($type,$id,$key,$language,$index)
 	{
-		self::$_predisClient->expire($this->getPredisHash($type,$id,$key,$language,$index), -1);
-		self::$_predisClient->del($this->getPredisHash($type,$id,$key,$language,$index));
+		$this->flushPredis();
 	}
 	public function setPredisValue($type,$id,$key,$language,$index,$value)
 	{
-		self::$_predisClient->set($this->getPredisHash($type,$id,$key,$language,$index),$value);
-		self::$_predisClient->expire($this->getPredisHash($type,$id,$key,$language,$index), self::$_predisTTL);
+		$this->flushPredis();
+	}
+	public function flushPredis()
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		self::$_predisClient->expire($this->getPredisHash(), -1);
+		self::$_predisClient->del($this->getPredisHash());
 	}
 
 	public static function LoadInstance($key=null)
@@ -61,7 +103,7 @@ class i18ndb {
 	{
 		$__PRIVATE_INSTANCE_CACHE = false;
 		try {
-			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.sha1(json_encode($pdo_handler).'_'.$table_name);
+			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.hash('sha256',json_encode($pdo_handler).'_'.$table_name);
 		} catch (Exception $e) {
 			//...
 		}
@@ -172,27 +214,9 @@ class i18ndb {
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		// PREDIS HACK TO READ FROM MEMORY IF AVAILABLE
-		//print_r([$type,$id,$key,$language,$index]);
-		if(self::$_predisClient && $language!==null)
-		{
-			if($index!==null)
-			{
-				$r = $this->getPredisValue($type,$id,$key,$language,$index);
-				if($r!==null)
-					return $Morphoji->toEmojis($r);
-			}
-			else
-			{
-				// tentative de lire l'index par défaut
-				$r = $this->getPredisValue($type,$id,$key,$language,'');
-				if($r!==null)
-				{
-					//echo $r;
-					return $Morphoji->toEmojis($r);
-				}
-				//die('ok');
-			}
-		}
+		$r = $this->getPredisValue($type,$id,$key,$language,$index);
+		if($r!==null)
+			return $Morphoji->toEmojis($r);
 
 		//print_r([$type,$id,$key,$language,$index]);
 		//die;
@@ -390,19 +414,7 @@ class i18ndb {
 
 	public function clear($type,$id,$key,$language = null,$index=null)
 	{
-		// PREDIS HACK: DELETE A KEY INTO MEMORY
-		if(self::$_predisClient && $language!==null && $index!==null)
-		{
-			if($index!==null)
-			{
-				$this->delPredisValue($type,$id,$key,$language,$index);
-			}
-			else
-			{
-				// on tente de détruire l'index par défaut
-				$this->delPredisValue($type,$id,$key,$language,'');
-			}
-		}
+		$this->flushPredis();
 
 		if(!$this->table_is_ready())
 			return false;
@@ -443,7 +455,7 @@ class i18ndb {
 		}
 
 		$execute_values = [];
-		$query_filter = [];
+		$query_filter = ['TRUE'];
 
 		if($regexp)
 		{

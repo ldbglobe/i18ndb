@@ -65,7 +65,7 @@ class i18ndb {
 		self::$_predisClient = $predisClient;
 		self::$_predisTTL = $ttl;
 	}
-	public function getPredisHash()//$type,$id,$key,$language,$index)
+	public function getPredisHash()
 	{
 		if(!self::$_predisClient)
 			return null;
@@ -123,9 +123,10 @@ class i18ndb {
 	{
 		if(!self::$_predisClient)
 			return null;
+
 		if(isset(self::$_predisCache->hash) && isset(self::$_predisCache->_table_name))
 		{
-			$ok = self::$_predisCache->_table_name = $this->_table_name;
+			$ok = self::$_predisCache->_table_name == $this->_table_name;
 			if($validity_test)
 				$ok = $ok && self::$_predisCache === self::$_predisClient->get($this->getPredisHash().'_hash');
 			return $ok;

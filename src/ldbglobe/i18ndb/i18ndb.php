@@ -10,6 +10,7 @@ class i18ndb {
 	private static $_predisClient = false;
 	private static $_predisTTL = null;
 	private static $_static_instances = [];
+	private static $_predisCache = null;
 
 	private $_language_fallbacks = [];
 	private $_pdo_handler = null;
@@ -23,7 +24,7 @@ class i18ndb {
 	private $_clear_statement_language = null;
 	private $_clear_statement_language_index = null;
 	private $_statements_ready = null;
-	private $_predisCache = null;
+
 	private $_predisHash = null;
 
 	public function __construct($pdo_handler, $table_name)
@@ -86,16 +87,13 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		if($validity_test && isset($this->_predisCache->hash))
-		{
-			if(!$this->checkPredisCache())
-				$this->_predisCache = null;
-		}
+		if(!$this->checkPredisCache($validity_test))
+			self::$_predisCache = null;
 
-		if($this->_predisCache===null)
+		if(self::$_predisCache===null)
 		{
 			try {
-				$this->_predisCache = unserialize(self::$_predisClient->get($this->getPredisHash()));
+				self::$_predisCache = unserialize(self::$_predisClient->get($this->getPredisHash()));
 			} catch (\Exception $e) {
 				if(I18NDB_DEBUG)
 				{
@@ -103,30 +101,34 @@ class i18ndb {
 				}
 			}
 		}
-		return $this->_predisCache->data;
+		return self::$_predisCache->data;
 	}
 	public function setPredisCache($data,$update_ttl=false)
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		$this->_predisCache = (object)[
+		self::$_predisCache = (object)[
 			'data'=>$data,
+			'_table_name'=>$this->_table_name,
 			'hash'=>hash('sha256',random_int(0,999999999)),
 		];
 
-		self::$_predisClient->set($this->getPredisHash(),serialize($this->_predisCache));
-		self::$_predisClient->set($this->getPredisHash().'_hash',$this->_predisCache->hash);
+		self::$_predisClient->set($this->getPredisHash(),serialize(self::$_predisCache));
+		self::$_predisClient->set($this->getPredisHash().'_hash',self::$_predisCache->hash);
 		if($update_ttl)
 			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
 	}
-	public function checkPredisCache()
+	public function checkPredisCache($validity_test=false)
 	{
 		if(!self::$_predisClient)
 			return null;
-		if(isset($this->_predisCache->hash))
+		if(isset(self::$_predisCache->hash) && isset(self::$_predisCache->_table_name))
 		{
-			return $this->_predisCache === self::$_predisClient->get($this->getPredisHash().'_hash');
+			$ok = self::$_predisCache->_table_name = $this->_table_name;
+			if($validity_test)
+				$ok = $ok && self::$_predisCache === self::$_predisClient->get($this->getPredisHash().'_hash');
+			return $ok;
 		}
 		return false;
 	}

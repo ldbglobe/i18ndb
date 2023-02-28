@@ -1,6 +1,7 @@
 <?php
 namespace ldbglobe\i18ndb;
 
+define('I18NDB_DEBUG',false);
 define('I18NDB_DEFAULT_STATIC_INSTANCE','DEFAULT');
 define('I18NDB_DEFAULT_FALLBACK_CHAIN','DEFAULT');
 
@@ -16,9 +17,46 @@ class i18ndb {
 	private $_table_is_ready = null;
 	private $_get_statement_all = null;
 	private $_get_statement_language = null;
+	private $_get_statement_language_index = null;
 	private $_set_statement = null;
 	private $_clear_statement = null;
 	private $_clear_statement_language = null;
+	private $_clear_statement_language_index = null;
+	private $_statements_ready = null;
+	private $_predisCache = null;
+	private $_predisHash = null;
+
+	public function __construct($pdo_handler, $table_name)
+	{
+		$__PRIVATE_INSTANCE_CACHE = false;
+		try {
+			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.hash('sha256',json_encode($pdo_handler).'_'.$table_name);
+		} catch (\Exception $e) {
+			if(I18NDB_DEBUG)
+			{
+				print_r($e);
+			}
+		}
+
+		if($__PRIVATE_INSTANCE_CACHE)
+		{
+			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
+			if($instance)
+			{
+				$this->inheritInstance($instance);
+				return ;
+			}
+		}
+
+		$this->_pdo_handler = $pdo_handler;
+		$this->_table_name = $table_name;
+		$this->_statements_ready = false;
+
+		if($__PRIVATE_INSTANCE_CACHE)
+		{
+			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
+		}
+	}
 
 	public static function setPredisClient($predisClient,$ttl=null)
 	{
@@ -31,8 +69,10 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		return 'i18ndb::'.hash('sha256',serialize([$this->_table_name]));
-		//return 'i18ndb__'.hash('sha256',serialize([$this->_table_name, $type, $id, $key, $language, $index]));
+		if($this->_predisHash===null)
+			$this->_predisHash = 'i18ndb::'.hash('sha256',serialize([$this->_table_name]));
+
+		return $this->_predisHash;
 	}
 	public function getContentHash($type, $id, $key, $language, $index)
 	{
@@ -41,27 +81,54 @@ class i18ndb {
 
 		return implode('::',[$type?$type:'', $id?$id:'', $key?$key:'', $language?$language:'', $index?$index:'']);
 	}
-	public function getPredisCache()
+	public function getPredisCache($validity_test=false)
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = false;
-		try {
-			$cache = unserialize(self::$_predisClient->get($this->getPredisHash()));
-		} catch (\Exception $e) {
-			// ...
+		if($validity_test && isset($this->_predisCache->hash))
+		{
+			if(!$this->checkPredisCache())
+				$this->_predisCache = null;
 		}
-		return $cache;
+
+		if($this->_predisCache===null)
+		{
+			try {
+				$this->_predisCache = unserialize(self::$_predisClient->get($this->getPredisHash()));
+			} catch (\Exception $e) {
+				if(I18NDB_DEBUG)
+				{
+					print_r($e);
+				}
+			}
+		}
+		return $this->_predisCache->data;
 	}
 	public function setPredisCache($data,$update_ttl=false)
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		self::$_predisClient->set($this->getPredisHash(),serialize($data));
+		$this->_predisCache = (object)[
+			'data'=>$data,
+			'hash'=>hash('sha256',random_int(0,999999999)),
+		];
+
+		self::$_predisClient->set($this->getPredisHash(),serialize($this->_predisCache));
+		self::$_predisClient->set($this->getPredisHash().'_hash',$this->_predisCache->hash);
 		if($update_ttl)
 			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
+	}
+	public function checkPredisCache()
+	{
+		if(!self::$_predisClient)
+			return null;
+		if(isset($this->_predisCache->hash))
+		{
+			return $this->_predisCache === self::$_predisClient->get($this->getPredisHash().'_hash');
+		}
+		return false;
 	}
 
 	public function getPredisValue($type,$id,$key,$language,$index)
@@ -69,8 +136,7 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		static $cache = null;
-		$cache = $cache===null ? $this->getPredisCache() : $cache;
+		$cache = $this->getPredisCache();
 		if(!is_array($cache))
 		{
 			// no data found in redis cache
@@ -78,11 +144,11 @@ class i18ndb {
 			$cache = [];
 			foreach($dictionnary as $text)
 			{
-				$cache[$this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index)] = $text->value;
+				$k = $this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index);
+				$cache[$k] = $text->value;
 			}
 			$this->setPredisCache($cache,true);
 		}
-		$cache = $cache ? $cache : [];
 
 		$k = $this->getContentHash($type,$id,$key,$language,$index);
 		return isset($cache[$k]) ? $cache[$k] : '';
@@ -92,7 +158,7 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = $this->getPredisCache();
+		$cache = $this->getPredisCache(true);
 		if(is_array($cache))
 		{
 			$k = $this->getContentHash($type,$id,$key,$language,$index);
@@ -108,7 +174,7 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = $this->getPredisCache();
+		$cache = $this->getPredisCache(true);
 		if(is_array($cache))
 		{
 			$k = $this->getContentHash($type,$id,$key,$language,$index);
@@ -135,37 +201,6 @@ class i18ndb {
 	{
 		$key = $key!==null ? $key : I18NDB_DEFAULT_STATIC_INSTANCE;
 		self::$_static_instances[$key] = $i18ndb_instance;
-	}
-
-	public function __construct($pdo_handler, $table_name)
-	{
-		$__PRIVATE_INSTANCE_CACHE = false;
-		try {
-			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.hash('sha256',json_encode($pdo_handler).'_'.$table_name);
-		} catch (Exception $e) {
-			//...
-		}
-
-		if($__PRIVATE_INSTANCE_CACHE)
-		{
-			$this->__PRIVATE_INSTANCE_CACHE = $__PRIVATE_INSTANCE_CACHE;
-
-			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
-			if($instance)
-			{
-				$this->inheritInstance($instance);
-				return ;
-			}
-		}
-
-		$this->_pdo_handler = $pdo_handler;
-		$this->_table_name = $table_name;
-		$this->_statements_ready = false;
-
-		if($__PRIVATE_INSTANCE_CACHE)
-		{
-			self::RegisterInstance($this,$__PRIVATE_INSTANCE_CACHE);
-		}
 	}
 
 	public function inheritInstance($instance)
@@ -269,12 +304,12 @@ class i18ndb {
 		{
 			$result = $this->_get_statement_all->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
 			if(!$result)
-				throw new Exception($this->_pdo_handler->errorInfo());
+				throw new \Exception($this->_pdo_handler->errorInfo());
 			$results = $this->_get_statement_all->fetchAll(\PDO::FETCH_OBJ);
 			$result = array();
 			if($results)
 			{
-				foreach($results as $k=>$v)
+				foreach($results as $v)
 				{
 					if(!isset($result[$v->language]))
 						$result[$v->language] = array();
@@ -297,14 +332,14 @@ class i18ndb {
 			{
 				$result = $this->_get_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
 				if(!$result)
-					throw new Exception($this->_pdo_handler->errorInfo());
+					throw new \Exception($this->_pdo_handler->errorInfo());
 				$results = $this->_get_statement_language->fetchAll(\PDO::FETCH_OBJ);
 				if($results)
 				{
 					if(count($results)>1 || $results[0]->index!=='')
 					{
 						$result = array();
-						foreach($results as $k=>$v)
+						foreach($results as $v)
 						{
 							$result[$v->index] = $Morphoji->toEmojis($v->value);
 						}
@@ -593,11 +628,15 @@ class i18ndb {
 		$table = $this->_table_name;
 		try {
 
-			$result = $this->_pdo_handler->query("SELECT 1 FROM `${table}` LIMIT 1");
+			$result = $this->_pdo_handler->query("SELECT 1 FROM `".$table."` LIMIT 1");
 			// Result is either boolean FALSE (no table found) or PDOStatement Object (table found)
 			return $result !== FALSE;
 		} catch (\Exception $e) {
 			// We got an exception == table not found
+			if(I18NDB_DEBUG)
+			{
+				print_r($e);
+			}
 			return FALSE;
 		}
 	}

@@ -41,7 +41,7 @@ class i18ndb {
 
 		return implode('::',[$type?$type:'', $id?$id:'', $key?$key:'', $language?$language:'', $index?$index:'']);
 	}
-	public function getPredisValue($type,$id,$key,$language,$index)
+	public function getPredisCache()
 	{
 		if(!self::$_predisClient)
 			return null;
@@ -52,7 +52,25 @@ class i18ndb {
 		} catch (\Exception $e) {
 			// ...
 		}
+		return $cache;
+	}
+	public function setPredisCache($data,$update_ttl=false)
+	{
+		if(!self::$_predisClient)
+			return null;
 
+		self::$_predisClient->set($this->getPredisHash(),serialize($data));
+		if($update_ttl)
+			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
+	}
+
+	public function getPredisValue($type,$id,$key,$language,$index)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		static $cache = null;
+		$cache = $cache===null ? $this->getPredisCache() : $cache;
 		if(!is_array($cache))
 		{
 			// no data found in redis cache
@@ -62,21 +80,41 @@ class i18ndb {
 			{
 				$cache[$this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index)] = $text->value;
 			}
-			self::$_predisClient->set($this->getPredisHash(),serialize($cache));
-			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
+			$this->setPredisCache($cache,true);
 		}
-		$cache ? $cache : [];
+		$cache = $cache ? $cache : [];
 
 		$k = $this->getContentHash($type,$id,$key,$language,$index);
 		return isset($cache[$k]) ? $cache[$k] : '';
 	}
 	public function delPredisValue($type,$id,$key,$language,$index)
 	{
-		$this->flushPredis();
+		if(!self::$_predisClient)
+			return null;
+
+		$cache = $this->getPredisCache();
+		if(is_array($cache))
+		{
+			$k = $this->getContentHash($type,$id,$key,$language,$index);
+			if(isset($cache[$k]))
+			{
+				unset($cache[$k]);
+				$this->setPredisCache($cache);
+			}
+		}
 	}
 	public function setPredisValue($type,$id,$key,$language,$index,$value)
 	{
-		$this->flushPredis();
+		if(!self::$_predisClient)
+			return null;
+
+		$cache = $this->getPredisCache();
+		if(is_array($cache))
+		{
+			$k = $this->getContentHash($type,$id,$key,$language,$index);
+			$cache[$k] = $value;
+			$this->setPredisCache($cache);
+		}
 	}
 	public function flushPredis()
 	{

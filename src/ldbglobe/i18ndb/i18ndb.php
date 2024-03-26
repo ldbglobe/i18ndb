@@ -16,18 +16,10 @@ class i18ndb {
 	private $_pdo_handler = null;
 	private $_table_name = null;
 	private $_table_is_ready = null;
-	private $_get_statement_all = null;
-	private $_get_statement_language = null;
-	private $_get_statement_language_index = null;
-	private $_set_statement = null;
-	private $_clear_statement = null;
-	private $_clear_statement_language = null;
-	private $_clear_statement_language_index = null;
-	private $_statements_ready = null;
 
 	private $_predisHash = null;
 
-	public function __construct($pdo_handler, $table_name)
+	static function factory($pdo_handler, $table_name)
 	{
 		$__PRIVATE_INSTANCE_CACHE = false;
 		try {
@@ -43,15 +35,26 @@ class i18ndb {
 		{
 			$instance = self::LoadInstance($__PRIVATE_INSTANCE_CACHE);
 			if($instance)
+				return $instance;
+			else
+				return new i18ndb($pdo_handler, $table_name);
+		}
+	}
+
+	public function __construct($pdo_handler, $table_name)
+	{
+		$__PRIVATE_INSTANCE_CACHE = false;
+		try {
+			$__PRIVATE_INSTANCE_CACHE = '__PRIVATE_INSTANCE_CACHE__'.hash('sha256',json_encode($pdo_handler).'_'.$table_name);
+		} catch (\Exception $e) {
+			if(I18NDB_DEBUG)
 			{
-				$this->inheritInstance($instance);
-				return ;
+				print_r($e);
 			}
 		}
 
 		$this->_pdo_handler = $pdo_handler;
 		$this->_table_name = $table_name;
-		$this->_statements_ready = false;
 
 		if($__PRIVATE_INSTANCE_CACHE)
 		{
@@ -206,81 +209,6 @@ class i18ndb {
 		self::$_static_instances[$key] = $i18ndb_instance;
 	}
 
-	public function inheritInstance($instance)
-	{
-		$this->_pdo_handler = $instance->_pdo_handler;
-		$this->_table_name = $instance->_table_name;
-		$this->_statements_ready = $instance->_statements_ready;
-		$this->_get_statement_all = $instance->_get_statement_all;
-		$this->_get_statement_language = $instance->_get_statement_language;
-		$this->_get_statement_language_index = $instance->_get_statement_language_index;
-		$this->_set_statement = $instance->_set_statement;
-		$this->_clear_statement = $instance->_clear_statement;
-		$this->_clear_statement_language = $instance->_clear_statement_language;
-		$this->_clear_statement_language_index = $instance->_clear_statement_language_index;
-	}
-
-	public function registerStatements()
-	{
-
-		if($this->_statements_ready===false && $this->table_is_ready())
-		{
-			$this->_get_statement_all = $this->_pdo_handler->prepare("SELECT `language`, `index`, `value` FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key
-			");
-
-			$this->_get_statement_language = $this->_pdo_handler->prepare("SELECT `index`, `value` FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key AND
-				`language` = :language
-			");
-			$this->_get_statement_language_index = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key AND
-				`language` = :language AND
-				`index` = :index
-			");
-
-			$this->_set_statement = $this->_pdo_handler->prepare("INSERT INTO `".$this->_table_name."` SET
-				`id` = :id,
-				`type` = :type,
-				`key` = :key,
-				`language` = :language,
-				`index` = :index,
-				`value` = :value,
-				created_at = NOW(),
-				updated_at = NOW()
-				ON DUPLICATE KEY UPDATE updated_at = NOW(), `value` = :value
-			");
-
-			$this->_clear_statement = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key
-			");
-
-			$this->_clear_statement_language = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key AND
-				`language` = :language
-			");
-			$this->_clear_statement_language_index = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE
-				`id` = :id AND
-				`type` = :type AND
-				`key` = :key AND
-				`language` = :language AND
-				`index` = :index
-			");
-
-			$this->_statements_ready = true;
-		}
-	}
-
 	// ---------------------------------------------------------
 	// Read / Write function
 	// ---------------------------------------------------------
@@ -300,15 +228,16 @@ class i18ndb {
 		if(!$this->table_is_ready())
 			return false;
 
-		$this->registerStatements();
-
 		$id = $id>0 ? $id : 0;
 		if($language===null)
 		{
-			$result = $this->_get_statement_all->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
+			$stmt = $this->_pdo_handler->prepare("SELECT `language`, `index`, `value` FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key");
+			$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
 			if(!$result)
 				throw new \Exception($this->_pdo_handler->errorInfo());
-			$results = $this->_get_statement_all->fetchAll(\PDO::FETCH_OBJ);
+			$results = $stmt->fetchAll(\PDO::FETCH_OBJ);
+			unset($stmt);
+
 			$result = array();
 			if($results)
 			{
@@ -333,10 +262,13 @@ class i18ndb {
 		{
 			if($index===null)
 			{
-				$result = $this->_get_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+				$stmt = $this->_pdo_handler->prepare("SELECT `index`, `value` FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key AND `language` = :language");
+				$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
 				if(!$result)
 					throw new \Exception($this->_pdo_handler->errorInfo());
-				$results = $this->_get_statement_language->fetchAll(\PDO::FETCH_OBJ);
+				$results = $stmt->fetchAll(\PDO::FETCH_OBJ);
+				unset($stmt);
+
 				if($results)
 				{
 					if(count($results)>1 || $results[0]->index!=='')
@@ -371,10 +303,12 @@ class i18ndb {
 			}
 			else
 			{
-				$result = $this->_get_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
+				$stmt = $this->_pdo_handler->prepare("SELECT `value` FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key AND `language` = :language AND `index` = :index");
+				$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
 				if(!$result)
 					throw new \Exception($this->_pdo_handler->errorInfo());
-				$result =  $this->_get_statement_language->fetch(\PDO::FETCH_OBJ);
+				$result =  $stmt->fetch(\PDO::FETCH_OBJ);
+				unset($stmt);
 				if(isset($result->value))
 				{
 					// PREDIS HACK: WRITE A MISSING KEY INTO MEMORY
@@ -441,8 +375,6 @@ class i18ndb {
 		if(!$this->table_is_ready())
 			return false;
 
-		$this->registerStatements();
-
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 
 		$id = $id>0 ? $id : 0;
@@ -472,7 +404,10 @@ class i18ndb {
 						}
 
 						$db_value = $Morphoji->fromEmojis($value);
-						return $this->_set_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$db_value, 'index'=>$index));
+						$stmt = $this->_pdo_handler->prepare("INSERT INTO `".$this->_table_name."` SET `id` = :id, `type` = :type, `key` = :key, `language` = :language, `index` = :index, `value` = :value, created_at = NOW(), updated_at = NOW() ON DUPLICATE KEY UPDATE updated_at = NOW(), `value` = :value");
+						$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'value'=>$db_value, 'index'=>$index));
+						unset($stmt);
+						return $result;
 					}
 					return true;
 				}
@@ -495,23 +430,34 @@ class i18ndb {
 		if(!$this->table_is_ready())
 			return false;
 
-		$this->registerStatements();
-
 		$id = $id>0 ? $id : 0;
 		if($index)
-			return $this->_clear_statement_language_index->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
+		{
+			$stmt = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key AND `language` = :language AND `index` = :index");
+			$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language, 'index'=>$index));
+			unset($stmt);
+			return $result;
+		}
 		if($language)
-			return $this->_clear_statement_language->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+		{
+			$stmt = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key AND `language` = :language");
+			$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key, 'language'=>$language));
+			unset($stmt);
+			return $result;
+		}
 		else
-			return $this->_clear_statement->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
+		{
+			$stmt = $this->_pdo_handler->prepare("DELETE FROM `".$this->_table_name."` WHERE `id` = :id AND `type` = :type AND `key` = :key");
+			$result = $stmt->execute(array('id'=>$id, 'type'=>$type, 'key'=>$key));
+			unset($stmt);
+			return $result;
+		}
 	}
 
 	public function search($param=null, $type=null, $id=null, $key=null, $language=null)
 	{
 		if(!$this->table_is_ready())
 			return false;
-
-		$this->registerStatements();
 
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
 

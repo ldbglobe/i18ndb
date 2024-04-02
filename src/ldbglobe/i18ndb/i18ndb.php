@@ -10,14 +10,13 @@ class i18ndb {
 	private static $_predisClient = false;
 	private static $_predisTTL = null;
 	private static $_static_instances = [];
-	private static $_predisCache = null;
 
 	private $_language_fallbacks = [];
 	private $_pdo_handler = null;
 	private $_table_name = null;
 	private $_table_is_ready = null;
-
 	private $_predisHash = null;
+	private $_predisCache = [];
 
 	static function factory($pdo_handler, $table_name)
 	{
@@ -68,110 +67,44 @@ class i18ndb {
 		self::$_predisClient = $predisClient;
 		self::$_predisTTL = $ttl;
 	}
-	public function getPredisHash()
-	{
-		if(!self::$_predisClient)
-			return null;
-
-		if($this->_predisHash===null)
-			$this->_predisHash = 'i18ndb::'.hash('sha256',serialize([$this->_table_name]));
-
-		return $this->_predisHash;
-	}
-	public function getContentHash($type, $id, $key, $language, $index)
-	{
-		if(!self::$_predisClient)
-			return null;
-
-		return implode('::',[$type?$type:'', $id?$id:'', $key?$key:'', $language?$language:'', $index?$index:'']);
-	}
-	public function getPredisCache($validity_test=false)
-	{
-		if(!self::$_predisClient)
-			return null;
-
-		if(!$this->checkPredisCache($validity_test))
-			self::$_predisCache = null;
-
-		if(self::$_predisCache===null)
-		{
-			try {
-				self::$_predisCache = unserialize(self::$_predisClient->get($this->getPredisHash()));
-			} catch (\Exception $e) {
-				if(I18NDB_DEBUG)
-				{
-					print_r($e);
-				}
-			}
-		}
-		return self::$_predisCache->data;
-	}
-	public function setPredisCache($data,$update_ttl=false)
-	{
-		if(!self::$_predisClient)
-			return null;
-
-		self::$_predisCache = (object)[
-			'data'=>$data,
-			'_table_name'=>$this->_table_name,
-			'hash'=>hash('sha256',random_int(0,999999999)),
-		];
-
-		self::$_predisClient->set($this->getPredisHash(),serialize(self::$_predisCache));
-		self::$_predisClient->set($this->getPredisHash().'_hash',self::$_predisCache->hash);
-		if($update_ttl)
-			self::$_predisClient->expire($this->getPredisHash(), self::$_predisTTL);
-	}
-	public function checkPredisCache($validity_test=false)
-	{
-		if(!self::$_predisClient)
-			return null;
-
-		if(isset(self::$_predisCache->hash) && isset(self::$_predisCache->_table_name))
-		{
-			$ok = self::$_predisCache->_table_name == $this->_table_name;
-			if($validity_test)
-				$ok = $ok && self::$_predisCache === self::$_predisClient->get($this->getPredisHash().'_hash');
-			return $ok;
-		}
-		return false;
-	}
 
 	public function getPredisValue($type,$id,$key,$language,$index)
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = $this->getPredisCache();
-		if(!is_array($cache))
+		$cacheBlockHash = $this->getCacheBlockHash(['type'=>$type,'id'=>$id,'language'=>$language]);
+		$cacheBlock = $this->getPredisCacheBlock($cacheBlockHash);
+		if(!is_array($cacheBlock))
 		{
 			// no data found in redis cache
-			$dictionnary = $this->search();
-			$cache = [];
+			$dictionnary = $this->search(['type'=>$type,'id'=>$id,'language'=>$language]);
+			$cacheBlock = [];
 			foreach($dictionnary as $text)
 			{
 				$k = $this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index);
-				$cache[$k] = $text->value;
+				$cacheBlock[$k] = $text->value;
 			}
-			$this->setPredisCache($cache,true);
+			$this->setPredisCacheBlock($cacheBlockHash,$cacheBlock,true);
 		}
 
 		$k = $this->getContentHash($type,$id,$key,$language,$index);
-		return isset($cache[$k]) ? $cache[$k] : '';
+		return isset($cacheBlock[$k]) ? $cacheBlock[$k] : '';
 	}
 	public function delPredisValue($type,$id,$key,$language,$index)
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = $this->getPredisCache(true);
-		if(is_array($cache))
+		$cacheBlockHash = $this->getCacheBlockHash(['type'=>$type,'id'=>$id,'language'=>$language]);
+		$cacheBlock = $this->getPredisCacheBlock($cacheBlockHash);
+		if(is_array($cacheBlock))
 		{
 			$k = $this->getContentHash($type,$id,$key,$language,$index);
-			if(isset($cache[$k]))
+			if(isset($cacheBlock[$k]))
 			{
-				unset($cache[$k]);
-				$this->setPredisCache($cache);
+				unset($cacheBlock[$k]);
+				$this->setPredisCacheBlock($cacheBlockHash,$cacheBlock);
 			}
 		}
 	}
@@ -180,12 +113,98 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		$cache = $this->getPredisCache(true);
-		if(is_array($cache))
+		$cacheBlockHash = $this->getCacheBlockHash(['type'=>$type,'id'=>$id,'language'=>$language]);
+		$cacheBlock = $this->getPredisCacheBlock($cacheBlockHash);
+		if(is_array($cacheBlock))
 		{
 			$k = $this->getContentHash($type,$id,$key,$language,$index);
-			$cache[$k] = $value;
-			$this->setPredisCache($cache);
+			$cacheBlock[$k] = $value;
+			$this->setPredisCacheBlock($cacheBlockHash,$cacheBlock);
+		}
+	}
+
+	public function getCacheBlockHash($param=null)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		$type     = is_array($param) && isset($param['type'])     ? $param['type']     : null; // Classname
+		$id       = is_array($param) && isset($param['id'])       ? $param['id']       : null; // item ID
+		$language = is_array($param) && isset($param['language']) ? $param['language'] : null; // language
+
+		return 'i18ndb::'.hash('sha256',serialize([$this->_table_name,$type,$id,$language]));
+	}
+	public function getContentHash($type,$id,$key,$language,$index)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		return implode('::',[$type?$type:'', $id?$id:'', $key?$key:'', $language?$language:'', $index?$index:'']);
+	}
+	public function getPredisCacheBlock($cacheBlockHash)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		// la signature du cache ne correspond pas
+		$cert = self::$_predisClient->get($cacheBlockHash.'_cert');
+		if($cert != $this->getPredisCommonHash())
+		{
+			// on met à jour la signature du cache et on test à nouveau
+			if($cert != $this->getPredisCommonHash(true))
+			{
+				// toujours différent => on invalide le cache
+				unset($this->_predisCache[$cacheBlockHash]);
+				return;
+			}
+		}
+
+		if(!isset($this->_predisCache[$cacheBlockHash]))
+		{
+			try {
+				$this->_predisCache[$cacheBlockHash] = unserialize(self::$_predisClient->get($cacheBlockHash));
+			} catch (\Exception $e) {
+				if(I18NDB_DEBUG)
+				{
+					print_r($e);
+				}
+			}
+		}
+		return $this->_predisCache[$cacheBlockHash];
+	}
+	public function setPredisCacheBlock($cacheBlockHash,$cacheBlock,$update_ttl=false)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		$commonHash = $this->getPredisCommonHash();
+
+		$this->_predisCache[$cacheBlockHash] = $cacheBlock;
+		self::$_predisClient->set($cacheBlockHash,serialize($cacheBlock));
+		self::$_predisClient->set($cacheBlockHash.'_cert',$commonHash);
+		if($update_ttl)
+		{
+			self::$_predisClient->expire($cacheBlockHash, self::$_predisTTL);
+			self::$_predisClient->expire($cacheBlockHash.'_cert', self::$_predisTTL);
+		}
+	}
+
+	public function getPredisCommonHash($refresh=false)
+	{
+		if(!self::$_predisClient)
+			return null;
+
+		if($this->_predisHash)
+			return $this->_predisHash;
+
+		$commonHash = $this->getCacheBlockHash();
+
+		$this->_predisHash = self::$_predisClient->get($commonHash);
+		if(!$this->_predisHash)
+		{
+			$this->_predisHash = hash('sha256',microtime(true).'_'.random_int(0,999999999));
+			self::$_predisClient->set($commonHash,$this->_predisHash);
+			self::$_predisClient->expire($commonHash, self::$_predisTTL);
 		}
 	}
 	public function flushPredis()
@@ -193,8 +212,12 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		self::$_predisClient->expire($this->getPredisHash(), -1);
-		self::$_predisClient->del($this->getPredisHash());
+		$commonHash = $this->getPredisCommonHash();
+
+		self::$_predisClient->expire($commonHash, -1);
+		self::$_predisClient->del($commonHash);
+
+		$this->_predisCache = [];
 	}
 
 	public static function LoadInstance($key=null)

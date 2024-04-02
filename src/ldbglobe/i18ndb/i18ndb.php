@@ -80,10 +80,13 @@ class i18ndb {
 			// no data found in redis cache
 			$dictionnary = $this->search(['type'=>$type,'id'=>$id,'language'=>$language]);
 			$cacheBlock = [];
-			foreach($dictionnary as $text)
+			if($dictionnary)
 			{
-				$k = $this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index);
-				$cacheBlock[$k] = $text->value;
+				foreach($dictionnary as $text)
+				{
+					$k = $this->getContentHash($text->type, $text->id, $text->key, $text->language, $text->index);
+					$cacheBlock[$k] = $text->value;
+				}
 			}
 			$this->setPredisCacheBlock($cacheBlockHash,$cacheBlock,true);
 		}
@@ -395,7 +398,7 @@ class i18ndb {
 
 	public function set($type,$id,$key,$language, $value = null, $index = '')
 	{
-		if(!$this->table_is_ready())
+		if(!$this->table_is_ready(true))
 			return false;
 
 		$Morphoji = new \Chefkoch\Morphoji\Converter();
@@ -451,7 +454,7 @@ class i18ndb {
 		$this->flushPredis();
 
 		if(!$this->table_is_ready())
-			return false;
+			return true;
 
 		$id = $id>0 ? $id : 0;
 		if($index)
@@ -579,7 +582,7 @@ class i18ndb {
 	// Internal tools to test en build storage table
 	// ---------------------------------------------------------
 
-	private function table_is_ready()
+	private function table_is_ready($build_if_missing=false)
 	{
 		if($this->_table_is_ready===null)
 		{
@@ -587,11 +590,21 @@ class i18ndb {
 			{
 				$this->_table_is_ready = true;
 			}
-			else
+			else if($build_if_missing)
 			{
 				$this->_table_is_ready = $this->init_table();
 			}
+			else
+			{
+				$this->_table_is_ready = false;
+			}
 		}
+
+		if($this->_table_is_ready===false && $build_if_missing)
+		{
+			$this->_table_is_ready = $this->init_table();
+		}
+
 		return $this->_table_is_ready;
 	}
 

@@ -15,7 +15,7 @@ class i18ndb {
 	private $_pdo_handler = null;
 	private $_table_name = null;
 	private $_table_is_ready = null;
-	private $_predisHash = null;
+	private $_predisCommonUTIME = null;
 	private $_predisCache = [];
 
 	static function factory($pdo_handler, $table_name)
@@ -149,17 +149,11 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		// la signature du cache ne correspond pas
-		$cert = self::$_predisClient->get($cacheBlockHash.'_cert');
-		if($cert != $this->getPredisCommonHash())
+		$utime = self::$_predisClient->get($cacheBlockHash.'_utime');
+		if($utime <= $this->getPredisCommonUTIME())
 		{
-			// on met à jour la signature du cache et on test à nouveau
-			if($cert != $this->getPredisCommonHash(true))
-			{
-				// toujours différent => on invalide le cache
-				unset($this->_predisCache[$cacheBlockHash]);
-				return;
-			}
+			unset($this->_predisCache[$cacheBlockHash]);
+			return;
 		}
 
 		if(!isset($this->_predisCache[$cacheBlockHash]))
@@ -180,33 +174,31 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		$commonHash = $this->getPredisCommonHash();
-
 		$this->_predisCache[$cacheBlockHash] = $cacheBlock;
 		self::$_predisClient->set($cacheBlockHash,serialize($cacheBlock));
-		self::$_predisClient->set($cacheBlockHash.'_cert',$commonHash);
+		self::$_predisClient->set($cacheBlockHash.'_utime',time());
 		if($update_ttl)
 		{
 			self::$_predisClient->expire($cacheBlockHash, self::$_predisTTL);
-			self::$_predisClient->expire($cacheBlockHash.'_cert', self::$_predisTTL);
+			self::$_predisClient->expire($cacheBlockHash.'_utime', self::$_predisTTL);
 		}
 	}
 
-	public function getPredisCommonHash($refresh=false)
+	public function getPredisCommonUTIME()
 	{
 		if(!self::$_predisClient)
 			return null;
 
-		if($this->_predisHash)
-			return $this->_predisHash;
+		if($this->_predisCommonUTIME)
+			return $this->_predisCommonUTIME;
 
 		$commonHash = $this->getCacheBlockHash();
 
-		$this->_predisHash = self::$_predisClient->get($commonHash);
-		if(!$this->_predisHash)
+		$this->_predisCommonUTIME = self::$_predisClient->get($commonHash);
+		if(!$this->_predisCommonUTIME)
 		{
-			$this->_predisHash = hash('sha256',microtime(true).'_'.random_int(0,999999999));
-			self::$_predisClient->set($commonHash,$this->_predisHash);
+			$this->_predisCommonUTIME = time();
+			self::$_predisClient->set($commonHash,$this->_predisCommonUTIME);
 			self::$_predisClient->expire($commonHash, self::$_predisTTL);
 		}
 	}
@@ -215,7 +207,7 @@ class i18ndb {
 		if(!self::$_predisClient)
 			return null;
 
-		$commonHash = $this->getPredisCommonHash();
+		$commonHash = $this->getCacheBlockHash();
 
 		self::$_predisClient->expire($commonHash, -1);
 		self::$_predisClient->del($commonHash);
